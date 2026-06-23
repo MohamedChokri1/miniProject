@@ -1,0 +1,268 @@
+{
+  "Warden Bosses": [
+    {
+      "name": "Inferno Fellfire",
+      "level": 70,
+      "spawn": "18min",
+      "window": "32min"
+    },
+    {
+      "name": "Sleatskean Chillmist",
+      "level": 75,
+      "spawn": "18min",
+      "window": "32min"
+    },
+    {
+      "name": "Aberrant Starspell",
+      "level": 80,
+      "spawn": "18min",
+      "window": "32min"
+    },
+    {
+      "name": "Spirehoof the Corrupted",
+      "level": 85,
+      "spawn": "18min",
+      "window": "32min"
+    },
+    {
+      "name": "Falgren Bloodbinder",
+      "level": 90,
+      "spawn": "18min",
+      "window": "32min"
+    }
+  ],
+  "Meteoric Bosses": [
+    {
+      "name": "Stonefang",
+      "level": 85,
+      "spawn": "5min",
+      "window": "5min 30sec"
+    },
+    {
+      "name": "Goretusk",
+      "level": 85,
+      "spawn": "7min 30sec",
+      "window": "18min 45sec"
+    },
+    {
+      "name": "Bonehead",
+      "level": 90,
+      "spawn": "7min 30sec",
+      "window": "8min 15sec"
+    },
+    {
+      "name": "Bladewing",
+      "level": 90,
+      "spawn": "10min 30sec",
+      "window": "26min 15sec"
+    },
+    {
+      "name": "Redbane",
+      "level": 95,
+      "spawn": "13min 30sec",
+      "window": "33min 45sec"
+    },
+    {
+      "name": "Spearhorn",
+      "level": 100,
+      "spawn": "16min 30sec",
+      "window": "41min 15sec"
+    },
+    {
+      "name": "Ironscale",
+      "level": 95,
+      "spawn": "15min",
+      "window": "16min 30sec"
+    },
+    {
+      "name": "Shivercowl",
+      "level": 100,
+      "spawn": "15min",
+      "window": "16min 30sec"
+    },
+    {
+      "name": "Rockbelly",
+      "level": 105,
+      "spawn": "15min",
+      "window": "16min 30sec"
+    },
+    {
+      "name": "Coppinger",
+      "level": 105,
+      "spawn": "15min",
+      "window": "16min 30sec"
+    }
+  ],
+  "Frozen Bosses": [
+    {
+      "name": "The All-Knowing One",
+      "level": 120,
+      "spawn": "28min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "The Swamp King",
+      "level": 125,
+      "spawn": "33min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "Gnarlroot the Ancient",
+      "level": 130,
+      "spawn": "38min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "Chained Emperor",
+      "level": 135,
+      "spawn": "43min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "Ragnok the Stonelord",
+      "level": 140,
+      "spawn": "48min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "Ignus the Lavalord",
+      "level": 145,
+      "spawn": "58min 30sec",
+      "window": "3min"
+    }
+  ],
+  "Dragonlord Bosses": [
+    {
+      "name": "Glashtyn Deepscale",
+      "level": 150,
+      "spawn": "58min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "Spider Queen Ulrob",
+      "level": 155,
+      "spawn": "1hr 3min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "High Priest Bor-Ag-Valon",
+      "level": 160,
+      "spawn": "1hr 8min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "High King Krem-Nor-Borok",
+      "level": 165,
+      "spawn": "1hr 8min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "Firbolg Champion Sreng",
+      "level": 170,
+      "spawn": "1hr 13min 30sec",
+      "window": "3min"
+    },
+    {
+      "name": "King Snorri Bonechewer",
+      "level": 180,
+      "spawn": "0d 1h 26m",
+      "window": "3min"
+    }
+  ],
+  "Exalted Dragonlord Bosses": [
+    {
+      "name": "Ifryn Onyxclaw",
+      "level": 185,
+      "spawn": "1hr 22min 46sec",
+      "window": "3min 22sec"
+    },
+    {
+      "name": "Magister Skath",
+      "level": 190,
+      "spawn": "1hr 31min 19sec",
+      "window": "3min 44sec"
+    },
+    {
+      "name": "General Gron",
+      "level": 195,
+      "spawn": "1hr 39min 53sec",
+      "window": "4min 4sec"
+    },
+    {
+      "name": "Krothur the Condemned",
+      "level": 200,
+      "spawn": "1hr 48min 26sec",
+      "window": "4min 26sec"
+    },
+    {
+      "name": "Cragskor",
+      "level": 205,
+      "spawn": "1hr 57min 1sec",
+      "window": "4min 46sec"
+    },
+    {
+      "name": "Revenant of Anguish",
+      "level": 210,
+      "spawn": "2hr 5min 34sec",
+      "window": "5min 8sec"
+    },
+    {
+      "name": "Unox Mindrender",
+      "level": 215,
+      "spawn": "2hr 14min 8sec",
+      "window": "5min 28sec"
+    }
+  ],
+  "Mid Raids": [
+    {
+      "name": "Hrungnir",
+      "level": 185,
+      "spawn": "1day",
+      "window": "1day"
+    },
+    {
+      "name": "Mordris",
+      "level": 190,
+      "spawn": "1day",
+      "window": "1day"
+    },
+    {
+      "name": "Efnisien the Necromancer",
+      "level": 190,
+      "spawn": "1day",
+      "window": "1day"
+    }
+  ],
+  "Endgame Raids": [
+    {
+      "name": "Proteus",
+      "level": 220,
+      "spawn": "18hr",
+      "window": "45min"
+    },
+    {
+      "name": "Gelebron",
+      "level": 220,
+      "spawn": "1day 12hr",
+      "window": "1day 12hr"
+    },
+    {
+      "name": "Bloodthorn the Ravenous",
+      "level": 220,
+      "spawn": "1d 12hr",
+      "window": "1day 12hr"
+    },
+    {
+      "name": "Dhiothu",
+      "level": 220,
+      "spawn": "1day 12hr",
+      "window": "1day 12hr"
+    },
+    {
+      "name": "Crom's Hellborne Manikin",
+      "level": 230,
+      "spawn": "3day",
+      "window": "1day"
+    }
+  ]
+}
