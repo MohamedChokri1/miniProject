@@ -11,9 +11,6 @@ import io
 from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Optional, Dict, List, Tuple
-import psycopg2
-import psycopg2.pool
-import psycopg2.extras
 
 # --- Configuration ---
 intents = discord.Intents.default()
@@ -28,6 +25,16 @@ bot = commands.Bot(
 )
 
 DATA_FILE = 'data.json'
+
+# --- Persistent storage directory (volume mount) ---
+DATA_DIR = '/data'
+os.makedirs(DATA_DIR, exist_ok=True)
+
+TIMERS_FILE      = os.path.join(DATA_DIR, 'timers.json')
+CHANNELS_FILE    = os.path.join(DATA_DIR, 'channels.json')
+NOTIFIED_FILE    = os.path.join(DATA_DIR, 'notified.json')
+PERMISSIONS_FILE = os.path.join(DATA_DIR, 'permissions.json')
+LOGS_FILE        = os.path.join(DATA_DIR, 'logs.json')
 
 # --- Permission Configuration ---
 OWNER_USERNAME = "evanora0"
@@ -44,9 +51,6 @@ CATEGORY_LOOKUP: Dict[str, str] = {}
 
 # Last 200 log entries kept in memory for fast display
 logs_cache: List[str] = []
-
-# --- Database Connection Pool ---
-db_pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
 
 # --- Boss Shortcuts ---
 BOSS_SHORTCUTS = {
@@ -91,319 +95,160 @@ CATEGORY_COMMANDS = {
 RAID_CATEGORIES = {"Mid Raids", "Endgame Raids"}
 
 # ===========================
-#     DATABASE HELPERS
+#   JSON STORAGE HELPERS
 # ===========================
 
-def get_conn():
-    """Borrow a connection from the pool."""
-    return db_pool.getconn()
+_json_lock = asyncio.Lock()
 
-def put_conn(conn):
-    """Return a connection to the pool."""
-    db_pool.putconn(conn)
-
-def init_db():
-    """Create tables if they don't exist and initialise the connection pool."""
-    global db_pool
-    dsn = os.getenv("DATABASE_URL")
-    if not dsn:
-        host     = os.getenv("PGHOST", "localhost")
-        port     = os.getenv("PGPORT", "5432")
-        user     = os.getenv("PGUSER", "postgres")
-        password = os.getenv("PGPASSWORD", "")
-        dbname   = os.getenv("PGDATABASE", "postgres")
-        dsn = f"host={host} port={port} user={user} password={password} dbname={dbname}"
-
-    db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn)
-
-    conn = get_conn()
+def _read_json(path: str, default=None):
+    if default is None:
+        default = {}
+    if not os.path.exists(path):
+        return default
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS timers (
-                    guild_id  TEXT NOT NULL,
-                    boss_key  TEXT NOT NULL,
-                    last_kill TIMESTAMPTZ NOT NULL,
-                    PRIMARY KEY (guild_id, boss_key)
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS channels (
-                    guild_id   TEXT PRIMARY KEY,
-                    channel_id TEXT NOT NULL
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS notified (
-                    notification_key TEXT PRIMARY KEY,
-                    notified         BOOLEAN NOT NULL DEFAULT TRUE
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS permissions (
-                    guild_id TEXT NOT NULL,
-                    user_id  TEXT NOT NULL,
-                    PRIMARY KEY (guild_id, user_id)
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS logs (
-                    id        SERIAL PRIMARY KEY,
-                    message   TEXT NOT NULL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-            """)
-        conn.commit()
-        print("✅ Database schema ready")
-    finally:
-        put_conn(conn)
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            return json.loads(content) if content else default
+    except Exception:
+        return default
 
-# ===========================
-#   DB QUERY HELPERS (sync)
-# ===========================
+def _write_json(path: str, data) -> bool:
+    try:
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, separators=(',', ': '))
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        print(f"❌ Write error ({path}): {e}")
+        return False
+
+# --- Timers ---
 
 def db_get_timer(guild_id: str, boss_key: str) -> Optional[datetime]:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT last_kill FROM timers WHERE guild_id=%s AND boss_key=%s",
-                (guild_id, boss_key)
-            )
-            row = cur.fetchone()
-            return row[0] if row else None
-    finally:
-        put_conn(conn)
+    data = _read_json(TIMERS_FILE)
+    raw = data.get(guild_id, {}).get(boss_key)
+    if raw is None:
+        return None
+    return datetime.fromisoformat(raw)
 
 def db_get_guild_timers(guild_id: str) -> Dict[str, datetime]:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT boss_key, last_kill FROM timers WHERE guild_id=%s",
-                (guild_id,)
-            )
-            return {row[0]: row[1] for row in cur.fetchall()}
-    finally:
-        put_conn(conn)
+    data = _read_json(TIMERS_FILE)
+    guild = data.get(guild_id, {})
+    return {k: datetime.fromisoformat(v) for k, v in guild.items()}
 
 def db_get_all_timers() -> Dict[str, Dict[str, datetime]]:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT guild_id, boss_key, last_kill FROM timers")
-            result: Dict[str, Dict[str, datetime]] = defaultdict(dict)
-            for guild_id, boss_key, last_kill in cur.fetchall():
-                result[guild_id][boss_key] = last_kill
-            return result
-    finally:
-        put_conn(conn)
+    data = _read_json(TIMERS_FILE)
+    result: Dict[str, Dict[str, datetime]] = {}
+    for guild_id, bosses in data.items():
+        result[guild_id] = {k: datetime.fromisoformat(v) for k, v in bosses.items()}
+    return result
 
 def db_upsert_timer(guild_id: str, boss_key: str, last_kill: datetime):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO timers (guild_id, boss_key, last_kill)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (guild_id, boss_key) DO UPDATE SET last_kill = EXCLUDED.last_kill
-                """,
-                (guild_id, boss_key, last_kill)
-            )
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(TIMERS_FILE)
+    if guild_id not in data:
+        data[guild_id] = {}
+    data[guild_id][boss_key] = last_kill.isoformat()
+    _write_json(TIMERS_FILE, data)
 
 def db_delete_timer(guild_id: str, boss_key: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM timers WHERE guild_id=%s AND boss_key=%s",
-                (guild_id, boss_key)
-            )
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(TIMERS_FILE)
+    if guild_id in data:
+        data[guild_id].pop(boss_key, None)
+        if not data[guild_id]:
+            del data[guild_id]
+    _write_json(TIMERS_FILE, data)
 
 def db_delete_guild_timers(guild_id: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM timers WHERE guild_id=%s", (guild_id,))
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(TIMERS_FILE)
+    data.pop(guild_id, None)
+    _write_json(TIMERS_FILE, data)
+
+# --- Channels ---
 
 def db_get_channel(guild_id: str) -> Optional[str]:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT channel_id FROM channels WHERE guild_id=%s", (guild_id,))
-            row = cur.fetchone()
-            return row[0] if row else None
-    finally:
-        put_conn(conn)
+    data = _read_json(CHANNELS_FILE)
+    return data.get(guild_id)
 
 def db_get_all_channels() -> Dict[str, str]:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT guild_id, channel_id FROM channels")
-            return {row[0]: row[1] for row in cur.fetchall()}
-    finally:
-        put_conn(conn)
+    return _read_json(CHANNELS_FILE)
 
 def db_upsert_channel(guild_id: str, channel_id: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO channels (guild_id, channel_id)
-                VALUES (%s, %s)
-                ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id
-                """,
-                (guild_id, channel_id)
-            )
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(CHANNELS_FILE)
+    data[guild_id] = channel_id
+    _write_json(CHANNELS_FILE, data)
+
+# --- Notified ---
 
 def db_is_notified(key: str) -> bool:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT notified FROM notified WHERE notification_key=%s", (key,))
-            row = cur.fetchone()
-            return bool(row[0]) if row else False
-    finally:
-        put_conn(conn)
+    data = _read_json(NOTIFIED_FILE)
+    return key in data
 
 def db_set_notified(key: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO notified (notification_key, notified)
-                VALUES (%s, TRUE)
-                ON CONFLICT (notification_key) DO NOTHING
-                """,
-                (key,)
-            )
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(NOTIFIED_FILE)
+    data[key] = True
+    _write_json(NOTIFIED_FILE, data)
 
 def db_delete_notified(key: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM notified WHERE notification_key=%s", (key,))
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(NOTIFIED_FILE)
+    data.pop(key, None)
+    _write_json(NOTIFIED_FILE, data)
 
 def db_delete_notified_prefix(prefix: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM notified WHERE notification_key LIKE %s",
-                (prefix + "%",)
-            )
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(NOTIFIED_FILE)
+    keys_to_delete = [k for k in data if k.startswith(prefix)]
+    for k in keys_to_delete:
+        del data[k]
+    _write_json(NOTIFIED_FILE, data)
+
+# --- Permissions ---
 
 def db_is_permitted(guild_id: str, user_id: str) -> bool:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM permissions WHERE guild_id=%s AND user_id=%s",
-                (guild_id, user_id)
-            )
-            return cur.fetchone() is not None
-    finally:
-        put_conn(conn)
+    data = _read_json(PERMISSIONS_FILE)
+    return user_id in data.get(guild_id, [])
 
 def db_get_permitted_users(guild_id: str) -> List[str]:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM permissions WHERE guild_id=%s", (guild_id,))
-            return [row[0] for row in cur.fetchall()]
-    finally:
-        put_conn(conn)
+    data = _read_json(PERMISSIONS_FILE)
+    return data.get(guild_id, [])
 
 def db_add_permission(guild_id: str, user_id: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO permissions (guild_id, user_id)
-                VALUES (%s, %s)
-                ON CONFLICT DO NOTHING
-                """,
-                (guild_id, user_id)
-            )
-        conn.commit()
-    finally:
-        put_conn(conn)
+    data = _read_json(PERMISSIONS_FILE)
+    if guild_id not in data:
+        data[guild_id] = []
+    if user_id not in data[guild_id]:
+        data[guild_id].append(user_id)
+    _write_json(PERMISSIONS_FILE, data)
 
 def db_remove_permission(guild_id: str, user_id: str) -> bool:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM permissions WHERE guild_id=%s AND user_id=%s",
-                (guild_id, user_id)
-            )
-            deleted = cur.rowcount > 0
-        conn.commit()
-        return deleted
-    finally:
-        put_conn(conn)
+    data = _read_json(PERMISSIONS_FILE)
+    guild_perms = data.get(guild_id, [])
+    if user_id not in guild_perms:
+        return False
+    guild_perms.remove(user_id)
+    data[guild_id] = guild_perms
+    _write_json(PERMISSIONS_FILE, data)
+    return True
 
-def db_insert_log(message: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO logs (message, timestamp) VALUES (%s, NOW())",
-                (message,)
-            )
-        conn.commit()
-    finally:
-        put_conn(conn)
+# --- Logs ---
 
 def db_get_recent_logs(limit: int = 200) -> List[str]:
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT message, timestamp FROM logs ORDER BY id DESC LIMIT %s",
-                (limit,)
-            )
-            rows = cur.fetchall()
-        # Return in chronological order with formatted timestamps
-        return [
-            f"[{ts.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
-            for msg, ts in reversed(rows)
-        ]
-    finally:
-        put_conn(conn)
+    data = _read_json(LOGS_FILE, default=[])
+    return data[-limit:]
+
+def db_insert_log(message: str):
+    data = _read_json(LOGS_FILE, default=[])
+    ts = discord.utils.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    data.append(f"[{ts}] {message}")
+    if len(data) > 200:
+        data = data[-200:]
+    _write_json(LOGS_FILE, data)
 
 # ===========================
-#       LOGGING (DB)
+#       LOGGING (JSON)
 # ===========================
 
 def log_event(msg: str):
-    """Persist event to the logs table and keep last 200 in memory."""
+    """Persist event to logs.json and keep last 200 in memory."""
     global logs_cache
     ts = discord.utils.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     entry = f"[{ts}] {msg}"
@@ -413,7 +258,7 @@ def log_event(msg: str):
     try:
         db_insert_log(msg)
     except Exception as e:
-        print(f"⚠️ Log DB error: {e}")
+        print(f"⚠️ Log write error: {e}")
 
 # ===========================
 #    PERMISSION SYSTEM
@@ -719,24 +564,35 @@ async def check_spawns():
 async def cleanup_loop():
     try:
         cutoff = discord.utils.utcnow() - timedelta(days=30)
-        conn = get_conn()
-        try:
-            with conn.cursor() as cur:
-                # Remove timers older than 30 days
-                cur.execute("DELETE FROM timers WHERE last_kill < %s", (cutoff,))
-                removed_timers = cur.rowcount
-                # Remove stale notified keys that don't match any known boss
-                cur.execute("SELECT notification_key FROM notified")
-                all_keys = [row[0] for row in cur.fetchall()]
-                stale = [k for k in all_keys if not any(b in k for b in BOSS_NAME_LOOKUP)]
-                if stale:
-                    cur.execute(
-                        "DELETE FROM notified WHERE notification_key = ANY(%s)",
-                        (stale,)
-                    )
-            conn.commit()
-        finally:
-            put_conn(conn)
+
+        # Remove timers older than 30 days
+        timers_data = _read_json(TIMERS_FILE)
+        removed_timers = 0
+        for guild_id in list(timers_data.keys()):
+            for boss_key in list(timers_data[guild_id].keys()):
+                raw = timers_data[guild_id][boss_key]
+                try:
+                    ts = datetime.fromisoformat(raw)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=discord.utils.utcnow().tzinfo)
+                    if ts < cutoff:
+                        del timers_data[guild_id][boss_key]
+                        removed_timers += 1
+                except Exception:
+                    pass
+            if not timers_data[guild_id]:
+                del timers_data[guild_id]
+        if removed_timers:
+            _write_json(TIMERS_FILE, timers_data)
+
+        # Remove stale notified keys that don't match any known boss
+        notified_data = _read_json(NOTIFIED_FILE)
+        stale = [k for k in notified_data if not any(b in k for b in BOSS_NAME_LOOKUP)]
+        for k in stale:
+            del notified_data[k]
+        if stale:
+            _write_json(NOTIFIED_FILE, notified_data)
+
         if removed_timers or stale:
             print(f"🧹 Cleaned: {len(stale)} notifications, {removed_timers} old timers")
     except Exception as e:
@@ -871,7 +727,7 @@ async def help_cmd(ctx, *, page: str = None):
                 ("🔒 !unpermit @user", "Revoke access", True),
                 ("!perms", "List all permitted users", True),
                 ("🔒 !reload", "Reload boss data from data.json", True),
-                ("🔒 !logs", "View recent bot actions (persisted in DB)", True)
+                ("🔒 !logs", "View recent bot actions (persisted in /data/logs.json)", True)
             ],
             "footer": "Critical commands: !set, !clear, !reset, !editboss, !reload, !setchannel"
         }
@@ -1265,7 +1121,7 @@ async def logs(ctx):
             pass
     if not logs_cache: return await ctx.send("📜 No logs recorded yet.")
     embed = discord.Embed(title="📜 Bot Activity Log", description="\n".join(logs_cache[-20:]), color=0x7289da)
-    embed.set_footer(text=f"Total entries: {len(logs_cache)} | Stored in PostgreSQL")
+    embed.set_footer(text=f"Total entries: {len(logs_cache)} | Stored in /data/logs.json")
     await ctx.send(embed=embed)
 
 @bot.command()
@@ -1276,7 +1132,7 @@ async def backup(ctx):
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         if os.path.exists(DATA_FILE): zf.write(DATA_FILE)
     buf.seek(0)
-    await ctx.send("📦 Backup (boss data only — all timer/channel/permission data is in PostgreSQL):",
+    await ctx.send("📦 Backup (boss data only — all timer/channel/permission data is in /data/):",
                    file=discord.File(buf, "backup.zip"))
 
 # ===========================
@@ -1287,12 +1143,12 @@ async def backup(ctx):
 async def on_ready():
     print(f'✅ Online: {bot.user}')
     load_spawn_data()
-    # Warm the in-memory log cache
+    # Warm the in-memory log cache from persistent storage
     global logs_cache
     try:
-        logs_cache = await asyncio.get_event_loop().run_in_executor(None, db_get_recent_logs, 200)
+        logs_cache = db_get_recent_logs(200)
     except Exception as e:
-        print(f"⚠️ Could not load logs from DB: {e}")
+        print(f"⚠️ Could not load logs: {e}")
     if not check_spawns.is_running(): check_spawns.start()
     if not cleanup_loop.is_running(): cleanup_loop.start()
 
@@ -1303,8 +1159,6 @@ async def on_command_error(ctx, error):
     print(f"Error: {error}")
 
 async def shutdown():
-    if db_pool:
-        db_pool.closeall()
     await bot.close()
 
 if sys.platform != "win32":
@@ -1317,8 +1171,5 @@ if sys.platform != "win32":
 token = os.getenv("TOKEN")
 if not token:
     raise RuntimeError("TOKEN env variable not set")
-
-# Initialise DB before starting the bot (synchronous, safe at module level)
-init_db()
 
 bot.run(token)
